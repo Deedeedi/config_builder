@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Node Editor & Visualizer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Node Hierarchy Visualizer</h1>
+      <p>Click a node to edit. Drag nodes to reposition. Save updates to re-render links.</p>
+    </header>
+
+    <main>
+      <div id="canvas-wrapper">
+        <div id="viewport">
+          <svg id="links-svg"></svg>
+          <div id="nodes-container"></div>
+        </div>
+      </div>
+
+      <div id="controls">
+        <button id="recenter-btn" title="Re-center">▢</button>
+      </div>
+
+      <aside id="editor">
+        <h2>Node Editor</h2>
+        <div id="editor-body">
+          <label>ID: <span id="node-id">(none)</span></label>
+          <label>Display name
+            <input id="display_name" />
+          </label>
+          <label>Type
+            <input id="type" />
+          </label>
+          <label>Parent
+            <select id="parent_node">
+              <option value="">(none)</option>
+            </select>
+          </label>
+          <label>Inputs (JSON)
+            <textarea id="inputs" rows="8"></textarea>
+          </label>
+          <div class="editor-actions">
+            <button id="save-btn">Save</button>
+            <button id="add-btn">Add Node</button>
+            <button id="del-btn">Delete Node</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <small>Static demo — open <code>index.html</code> or run a local static server.</small>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

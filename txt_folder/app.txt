@@ -1,0 +1,308 @@
+// Simple node visualizer and editor
+// Loads sample nodes, renders boxes, draws SVG links using meta_data.parent_node / child_node
+
+const NODES_KEY = 'factor_nodes_v1';
+
+const sample = {
+  "node_1":{
+    "type":"sql_query",
+    "inputs":{
+      "query":"select * from table_1 where period = {{current_period}}",
+      "table_1":"table_1_name",
+      "current_period":202503
+    },
+    "meta_data":{
+      "display_name":"Node 1",
+      "parent_node":"node_2",
+      "child_node":["node_1_1","node_1_2"]
+    }
+  },
+  "node_2":{
+    "type":"spark_transform",
+    "inputs":{"script":"transform foo"},
+    "meta_data":{"display_name":"Node 2","parent_node":"","child_node":["node_1","node_3"]}
+  },
+  "node_3":{
+    "type":"sql_query","inputs":{"query":"select 1"},
+    "meta_data":{"display_name":"Node 3","parent_node":"node_2","child_node":[]}
+  }
+};
+
+let nodes = {};
+const container = document.getElementById('nodes-container');
+const svg = document.getElementById('links-svg');
+
+function load(){
+  const raw = localStorage.getItem(NODES_KEY);
+  if(raw){
+    try{ nodes = JSON.parse(raw); return }
+    catch(e){ console.warn('corrupt local nodes, falling back to sample') }
+  }
+  // create more sample nodes to ~10
+  nodes = {...sample};
+  for(let i=4;i<=10;i++){
+    const id = `node_${i}`;
+    nodes[id] = {type: i%2? 'sql_query':'python', inputs:{}, meta_data:{display_name:`Node ${i}`, parent_node: i===4? 'node_2' : `node_${Math.max(2, i-1)}`, child_node:[]}};
+  }
+  persist();
+}
+
+function persist(){ localStorage.setItem(NODES_KEY, JSON.stringify(nodes, null, 2)); }
+
+function clearSvg(){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+function drawLinks(){ clearSvg();
+  const ns = 'http://www.w3.org/2000/svg';
+  // add arrow marker
+  const defs = document.createElementNS(ns, 'defs');
+  const marker = document.createElementNS(ns, 'marker');
+  marker.setAttribute('id','arrow');
+  marker.setAttribute('markerWidth','10');
+  marker.setAttribute('markerHeight','10');
+  marker.setAttribute('refX','6');
+  marker.setAttribute('refY','5');
+  marker.setAttribute('orient','auto');
+  marker.setAttribute('markerUnits','strokeWidth');
+  const arrowPath = document.createElementNS(ns,'path');
+  arrowPath.setAttribute('d','M0,0 L0,10 L8,5 z');
+  arrowPath.setAttribute('fill','#06b6d4');
+  marker.appendChild(arrowPath);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  Object.entries(nodes).forEach(([id, node])=>{
+    const childArr = node.meta_data?.child_node || [];
+    childArr.forEach(childId=>{
+      if(!nodes[childId]) return;
+      // arrow directed from child -> parent (child is lower, parent higher)
+      const parentEl = document.querySelector(`.node-box[data-id="${id}"]`);
+      const childEl = document.querySelector(`.node-box[data-id="${childId}"]`);
+      if(!parentEl||!childEl) return;
+      const ra = parentEl.getBoundingClientRect();
+      const rb = childEl.getBoundingClientRect();
+      const ctn = container.getBoundingClientRect();
+  const xParent = ra.left - ctn.left + ra.width/2;
+  const yParent = ra.bottom - ctn.top; // parent's bottom (arrow should end here)
+  const arrowOffset = 4; // keep arrow tip slightly above the box bottom
+  const yParentTip = yParent - arrowOffset;
+      const xChild = rb.left - ctn.left + rb.width/2;
+      const yChild = rb.top - ctn.top + rb.height; // child's bottom
+
+      // compute mid Y between child bottom and parent top
+      const midY = (yChild + yParent) / 2;
+      const path = document.createElementNS(ns,'path');
+  const d = `M ${xChild} ${yChild} L ${xChild} ${midY} L ${xParent} ${midY} L ${xParent} ${yParentTip}`;
+      path.setAttribute('d', d);
+      path.setAttribute('stroke','#06b6d4');
+      path.setAttribute('stroke-width','2');
+      path.setAttribute('fill','none');
+      path.setAttribute('stroke-linejoin','round');
+      path.setAttribute('opacity','0.95');
+      path.setAttribute('marker-end','url(#arrow)');
+      svg.appendChild(path);
+    })
+  })
+}
+
+function render(){
+  container.innerHTML = '';
+  Object.entries(nodes).forEach(([id,node])=>{
+    const el = document.createElement('div');
+    el.className = 'node-box';
+    el.setAttribute('data-id', id);
+    el.innerHTML = `<div class="node-title">${node.meta_data?.display_name || id}</div>
+      <div class="node-type">${node.type}</div>
+      <div class="node-meta">id: ${id}</div>`;
+    container.appendChild(el);
+    makeDraggable(el);
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); openEditor(id); });
+  });
+
+  // compute automatic layout positions (skip nodes manually positioned by user)
+  requestAnimationFrame(()=>{
+    computeLayout();
+    const rect = container.getBoundingClientRect();
+    svg.setAttribute('width', rect.width);
+    svg.setAttribute('height', rect.height);
+    drawLinks();
+  })
+}
+
+// Compute hierarchical levels and layout nodes accordingly.
+function computeLayout(){
+  // Build adjacency and find roots
+  Object.keys(nodes).forEach(k=>{ nodes[k].meta_data.child_node = nodes[k].meta_data.child_node || []; });
+  const parentOf = {};
+  Object.entries(nodes).forEach(([id,n])=>{ const p = n.meta_data?.parent_node || ''; parentOf[id] = p && nodes[p] ? p : ''; });
+  const roots = Object.keys(nodes).filter(id=>!parentOf[id]);
+
+  // Build tree(s) and compute subtree sizes (number of leaves)
+  const visited = new Set();
+  const treeChildren = {};
+  Object.keys(nodes).forEach(id=> treeChildren[id] = nodes[id].meta_data.child_node.filter(ch=>nodes[ch]));
+
+  function computeLeaves(id, seen=new Set()){
+    if(seen.has(id)) return 0; // break cycles
+    seen.add(id);
+    const kids = treeChildren[id] || [];
+    if(kids.length === 0) return 1;
+    let sum = 0;
+    kids.forEach(k=> sum += computeLeaves(k, new Set(seen)));
+    return sum || 1;
+  }
+
+  const leavesCount = {};
+  Object.keys(nodes).forEach(id=> leavesCount[id] = computeLeaves(id));
+
+  // assign x positions: perform an inorder-like traversal, spacing leaves evenly
+  const nodeW = 200; const nodeH = 100; const vGap = 160; const hGap = 40; const padding = 20;
+  let nextX = padding;
+  const positions = {};
+
+  function layout(id, depth){
+    const el = document.querySelector(`.node-box[data-id="${id}"]`);
+    const kids = treeChildren[id] || [];
+    if(kids.length === 0){
+      // leaf
+      const x = nextX;
+      positions[id] = {x, y: padding + depth*vGap};
+      nextX += nodeW + hGap;
+      return positions[id];
+    }
+    // layout children first
+    const childPos = [];
+    kids.forEach(k=>{ const pos = layout(k, depth+1); if(pos) childPos.push(pos); });
+    if(childPos.length===0){
+      // fallback as leaf
+      const x = nextX; positions[id] = {x, y: padding + depth*vGap}; nextX += nodeW + hGap; return positions[id];
+    }
+    // center parent above children
+    const minX = Math.min(...childPos.map(p=>p.x));
+    const maxX = Math.max(...childPos.map(p=>p.x));
+    const centerX = (minX + maxX)/2;
+    positions[id] = {x: centerX, y: padding + depth*vGap};
+    return positions[id];
+  }
+
+  // If no roots (cycle), treat all nodes as pseudo-root list
+  const startRoots = roots.length ? roots : Object.keys(nodes);
+  startRoots.forEach(r=>{ if(!visited.has(r)) layout(r,0); });
+
+  // apply positions to elements, unless manual
+  const rect = container.getBoundingClientRect();
+  const totalWidth = Math.max(nextX, rect.width);
+  const neededHeight = padding*2 + (Math.max(...Object.values(positions).map(p=>p.y)) || 0) + nodeH;
+  container.style.height = Math.max(neededHeight, 600) + 'px';
+
+  // center the whole layout horizontally in container
+  const minX = Math.min(...Object.values(positions).map(p=>p.x));
+  const maxX = Math.max(...Object.values(positions).map(p=>p.x));
+  const layoutWidth = (maxX - minX) + nodeW;
+  const offsetX = Math.max(padding, (rect.width - layoutWidth)/2 + container.scrollLeft) - minX;
+
+  Object.entries(positions).forEach(([id,pos])=>{
+    const el = document.querySelector(`.node-box[data-id="${id}"]`);
+    if(!el) return;
+    if(el.dataset.manual === 'true') return;
+    el.style.left = (pos.x + offsetX) + 'px';
+    el.style.top = pos.y + 'px';
+  });
+}
+
+// simple dragging
+function makeDraggable(el){
+  let offsetX=0, offsetY=0, startX=0, startY=0; let dragging=false;
+  el.addEventListener('mousedown', (e)=>{
+    dragging=true; el.classList.add('dragging');
+    // mark as manual position so automatic layout doesn't reposition
+    el.dataset.manual = 'true';
+    startX = e.clientX; startY = e.clientY;
+    const rect = el.getBoundingClientRect();
+    const c = container.getBoundingClientRect();
+    offsetX = rect.left - c.left; offsetY = rect.top - c.top;
+    document.addEventListener('mousemove', onmove);
+    document.addEventListener('mouseup', onup, {once:true});
+  });
+
+  function onmove(e){
+    if(!dragging) return;
+    const dx = e.clientX - startX; const dy = e.clientY - startY;
+    el.style.left = (offsetX + dx) + 'px';
+    el.style.top = (offsetY + dy) + 'px';
+    drawLinks();
+  }
+
+  function onup(){ dragging=false; el.classList.remove('dragging'); document.removeEventListener('mousemove', onmove); drawLinks(); }
+}
+
+// Editor
+const editor = {
+  idSpan: document.getElementById('node-id'),
+  display: document.getElementById('display_name'),
+  type: document.getElementById('type'),
+  parent: document.getElementById('parent_node'),
+  inputs: document.getElementById('inputs'),
+  saveBtn: document.getElementById('save-btn'),
+  addBtn: document.getElementById('add-btn'),
+  delBtn: document.getElementById('del-btn')
+};
+
+function refreshParentOptions(){
+  const keys = Object.keys(nodes);
+  editor.parent.innerHTML = `<option value="">(none)</option>` + keys.map(k=>`<option value="${k}">${k} — ${nodes[k].meta_data?.display_name||k}</option>`).join('');
+}
+
+let activeId = null;
+function openEditor(id){ activeId = id; const n = nodes[id]; editor.idSpan.textContent = id; editor.display.value = n.meta_data?.display_name || '';
+  editor.type.value = n.type || '';
+  editor.parent.value = n.meta_data?.parent_node || '';
+  editor.inputs.value = JSON.stringify(n.inputs || {}, null, 2);
+}
+
+editor.saveBtn.addEventListener('click', ()=>{
+  if(!activeId) return alert('Select a node first');
+  try{
+    const inps = JSON.parse(editor.inputs.value || '{}');
+    nodes[activeId].type = editor.type.value;
+    nodes[activeId].inputs = inps;
+    nodes[activeId].meta_data = nodes[activeId].meta_data || {};
+    nodes[activeId].meta_data.display_name = editor.display.value;
+    const oldParent = nodes[activeId].meta_data.parent_node || '';
+    const newParent = editor.parent.value || '';
+    nodes[activeId].meta_data.parent_node = newParent;
+    // update child_node lists
+    if(oldParent && nodes[oldParent]){
+      nodes[oldParent].meta_data.child_node = (nodes[oldParent].meta_data.child_node||[]).filter(x=>x!==activeId);
+    }
+    if(newParent){
+      nodes[newParent].meta_data.child_node = Array.from(new Set([...(nodes[newParent].meta_data.child_node||[]), activeId]));
+    }
+    persist();
+    render();
+    refreshParentOptions();
+  }catch(e){ alert('Invalid JSON in Inputs'); }
+});
+
+editor.addBtn.addEventListener('click', ()=>{
+  const id = `node_${Date.now()}`;
+  nodes[id] = {type:'sql_query', inputs:{}, meta_data:{display_name:id, parent_node:'', child_node:[]}};
+  persist(); refreshParentOptions(); render(); openEditor(id);
+});
+
+editor.delBtn.addEventListener('click', ()=>{
+  if(!activeId) return; if(!confirm('Delete node '+activeId+'?')) return;
+  // remove from parent's child list
+  const p = nodes[activeId].meta_data?.parent_node;
+  if(p && nodes[p]) nodes[p].meta_data.child_node = (nodes[p].meta_data.child_node||[]).filter(x=>x!==activeId);
+  // remove references from others' child lists
+  Object.values(nodes).forEach(n=>{ n.meta_data.child_node = (n.meta_data.child_node||[]).filter(x=>x!==activeId); });
+  delete nodes[activeId]; activeId = null; editor.idSpan.textContent='(none)'; persist(); render(); refreshParentOptions();
+});
+
+// click empty space to deselect
+document.getElementById('canvas-wrapper').addEventListener('click', ()=>{ activeId=null; editor.idSpan.textContent='(none)'; });
+
+window.addEventListener('resize', ()=> drawLinks());
+
+// boot
+load(); refreshParentOptions(); render();

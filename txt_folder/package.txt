@@ -1,0 +1,10 @@
+{
+  "name": "node-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "description": "Static node visualizer demo",
+  "license": "MIT"
+}
