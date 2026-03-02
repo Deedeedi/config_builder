@@ -28,10 +28,10 @@ As a full stack developer, your task to build a GUI with javascript, html, css f
     - by dragging close to another node to build connection (i.e. dragged node should be child node of the closer node)
 * Automatically render and balance node location based on its hierachy. With parent node at the top and child nodes at bottom.
 * Users can zoom in/out by mouse or touchpad. Also can re-center with a rectangle icon at the bottom.
+* Double clicking on background area to create a new node
 
 
-## Import Config
-* Add functionality to import any config in the format of "nodes.json". Create a diagram automatically after loading
+
 
 
 

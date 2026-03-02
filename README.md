@@ -8,7 +8,7 @@ How to run
 
 ```bash
 # from project root
-npm i -g serve   # optional, or use python -m http.server
+npm i -g serve 
 serve . -p 5000
 ```
 

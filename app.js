@@ -356,6 +356,35 @@ editor.delBtn.addEventListener('click', ()=>{
 // click empty space to deselect
 document.getElementById('canvas-wrapper').addEventListener('click', ()=>{ activeId=null; editor.idSpan.textContent='(none)'; });
 
+// double click empty canvas to create a new node at cursor position
+document.getElementById('canvas-wrapper').addEventListener('dblclick', (e)=>{
+  // ignore dblclicks that happen on an existing node
+  if(e.target.closest && e.target.closest('.node-box')) return;
+  // compute position relative to container
+  const ctnRect = container.getBoundingClientRect();
+  const x = e.clientX - ctnRect.left;
+  const y = e.clientY - ctnRect.top;
+
+  // create unique id and node object
+  const id = `node_${Date.now()}`;
+  nodes[id] = { type: 'sql_query', inputs: {}, meta_data: { display_name: id, parent_node: '', child_node: [] } };
+  persist(); refreshParentOptions(); render();
+
+  // after render, position the newly created element and mark as manual so layout won't move it
+  requestAnimationFrame(()=>{
+    const el = document.querySelector(`.node-box[data-id="${id}"]`);
+    if(!el) return;
+    el.dataset.manual = 'true';
+    // place so that cursor is roughly at center-top of the node
+    const w = el.getBoundingClientRect().width || 200;
+    const h = el.getBoundingClientRect().height || 100;
+    el.style.left = (x - w/2) + 'px';
+    el.style.top = (y - h/2) + 'px';
+    drawLinks();
+    openEditor(id);
+  });
+});
+
 window.addEventListener('resize', ()=> drawLinks());
 
 // boot
