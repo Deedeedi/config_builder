@@ -18,17 +18,21 @@ As a full stack developer, your task to build a GUI with javascript, html, css f
 }
 
 ```
-## Node Hierachy Diagram
+## Diagram Canvas
 * Limit the maximum number of nodes displayed in the UI to 50.
 * Visualize the hierachy in the UI by boxes and arrows through the relation defined in "meta_data". 
-    - use arrows to suggest relation. Always direct from children to parents. The arrow should end at the bottom center border of the parent node.
+    - use arrows to suggest relation. Always direct from children to parents. The arrow should start from one object's border and arrow shape's tip (instead of center) should point to another object's border (instead of center).
     - use rectangle lines instead of curve lines for arrows. Avoid overlaps when auto-arranging. Automatically balance the nodes in the GUI
 * User can interactively edit on each node by two approaches:
     -  through a form object. 
     - by dragging close to another node to build connection (i.e. dragged node should be child node of the closer node)
 * Automatically render and balance node location based on its hierachy. With parent node at the top and child nodes at bottom.
 * Users can zoom in/out by mouse or touchpad. Also can re-center with a rectangle icon at the bottom.
-* Double clicking on background area to create a new node
+* Double clicking on background area to create a new node. The newly added node should not change layout of existing node
+
+
+
+
 
 
 

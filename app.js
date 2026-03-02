@@ -57,14 +57,15 @@ function drawLinks(){ clearSvg();
   const defs = document.createElementNS(ns, 'defs');
   const marker = document.createElementNS(ns, 'marker');
   marker.setAttribute('id','arrow');
-  marker.setAttribute('markerWidth','10');
-  marker.setAttribute('markerHeight','10');
-  marker.setAttribute('refX','6');
-  marker.setAttribute('refY','5');
+  // smaller arrowhead
+  marker.setAttribute('markerWidth','6');
+  marker.setAttribute('markerHeight','6');
+  marker.setAttribute('refX','4');
+  marker.setAttribute('refY','3');
   marker.setAttribute('orient','auto');
   marker.setAttribute('markerUnits','strokeWidth');
   const arrowPath = document.createElementNS(ns,'path');
-  arrowPath.setAttribute('d','M0,0 L0,10 L8,5 z');
+  arrowPath.setAttribute('d','M0,0 L0,6 L4,3 z');
   arrowPath.setAttribute('fill','#06b6d4');
   marker.appendChild(arrowPath);
   defs.appendChild(marker);
@@ -81,17 +82,42 @@ function drawLinks(){ clearSvg();
       const ra = parentEl.getBoundingClientRect();
       const rb = childEl.getBoundingClientRect();
       const ctn = container.getBoundingClientRect();
-  const xParent = ra.left - ctn.left + ra.width/2;
-  const yParent = ra.bottom - ctn.top; // parent's bottom (arrow should end here)
-  const arrowOffset = 4; // keep arrow tip slightly above the box bottom
-  const yParentTip = yParent - arrowOffset;
-      const xChild = rb.left - ctn.left + rb.width/2;
-      const yChild = rb.top - ctn.top + rb.height; // child's bottom
+      // compute edge-intersection points so arrows start/end at rectangle borders (not centers)
+      const parentRect = { left: ra.left - ctn.left, top: ra.top - ctn.top, width: ra.width, height: ra.height };
+      const childRect = { left: rb.left - ctn.left, top: rb.top - ctn.top, width: rb.width, height: rb.height };
+      const parentCenter = { x: parentRect.left + parentRect.width/2, y: parentRect.top + parentRect.height/2 };
+      const childCenter = { x: childRect.left + childRect.width/2, y: childRect.top + childRect.height/2 };
 
-      // compute mid Y between child bottom and parent top
-      const midY = (yChild + yParent) / 2;
+      function intersectEdge(rect, targetX, targetY){
+        const cx = rect.left + rect.width/2; const cy = rect.top + rect.height/2;
+        const dx = targetX - cx; const dy = targetY - cy;
+        if(Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return { x: cx, y: cy };
+        const cand = [];
+        // vertical sides
+        if(Math.abs(dx) > 1e-6){
+          let t = (rect.left - cx)/dx; let y = cy + t*dy;
+          if(t >= 0 && y >= rect.top && y <= rect.top + rect.height) cand.push({t, x: rect.left, y});
+          t = (rect.left + rect.width - cx)/dx; y = cy + t*dy;
+          if(t >= 0 && y >= rect.top && y <= rect.top + rect.height) cand.push({t, x: rect.left + rect.width, y});
+        }
+        // horizontal sides
+        if(Math.abs(dy) > 1e-6){
+          let t = (rect.top - cy)/dy; let x = cx + t*dx;
+          if(t >= 0 && x >= rect.left && x <= rect.left + rect.width) cand.push({t, x, y: rect.top});
+          t = (rect.top + rect.height - cy)/dy; x = cx + t*dx;
+          if(t >= 0 && x >= rect.left && x <= rect.left + rect.width) cand.push({t, x, y: rect.top + rect.height});
+        }
+        if(cand.length === 0) return { x: cx, y: cy };
+        cand.sort((a,b)=>a.t - b.t);
+        return { x: cand[0].x, y: cand[0].y };
+      }
+
+      const start = intersectEdge(childRect, parentCenter.x, parentCenter.y);
+      const end = intersectEdge(parentRect, childCenter.x, childCenter.y);
+      // rectangular elbow routing: go vertically from start, horizontally, then vertically to end
+      const midY = (start.y + end.y) / 2;
       const path = document.createElementNS(ns,'path');
-  const d = `M ${xChild} ${yChild} L ${xChild} ${midY} L ${xParent} ${midY} L ${xParent} ${yParentTip}`;
+      const d = `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`;
       path.setAttribute('d', d);
       path.setAttribute('stroke','#06b6d4');
       path.setAttribute('stroke-width','2');
@@ -149,15 +175,18 @@ function render(){
 // Compute hierarchical levels and layout nodes accordingly.
 function computeLayout(){
   // Build adjacency and find roots
+  // Ignore nodes explicitly marked to skip layout (newly created manual nodes)
   Object.keys(nodes).forEach(k=>{ nodes[k].meta_data.child_node = nodes[k].meta_data.child_node || []; });
+  const layoutIds = Object.keys(nodes).filter(id => !nodes[id].meta_data?.skip_layout);
   const parentOf = {};
-  Object.entries(nodes).forEach(([id,n])=>{ const p = n.meta_data?.parent_node || ''; parentOf[id] = p && nodes[p] ? p : ''; });
-  const roots = Object.keys(nodes).filter(id=>!parentOf[id]);
+  layoutIds.forEach(id => { const p = nodes[id].meta_data?.parent_node || ''; parentOf[id] = p && nodes[p] && !nodes[p].meta_data?.skip_layout ? p : ''; });
+  const roots = layoutIds.filter(id=>!parentOf[id]);
 
   // Build tree(s) and compute subtree sizes (number of leaves)
   const visited = new Set();
   const treeChildren = {};
-  Object.keys(nodes).forEach(id=> treeChildren[id] = nodes[id].meta_data.child_node.filter(ch=>nodes[ch]));
+  // only include children that participate in layout
+  layoutIds.forEach(id=> treeChildren[id] = (nodes[id].meta_data.child_node||[]).filter(ch => nodes[ch] && !nodes[ch].meta_data?.skip_layout));
 
   function computeLeaves(id, seen=new Set()){
     if(seen.has(id)) return 0; // break cycles
@@ -170,7 +199,7 @@ function computeLayout(){
   }
 
   const leavesCount = {};
-  Object.keys(nodes).forEach(id=> leavesCount[id] = computeLeaves(id));
+  layoutIds.forEach(id=> leavesCount[id] = computeLeaves(id));
 
   // assign x positions: perform an inorder-like traversal, spacing leaves evenly
   const nodeW = 200; const nodeH = 100; const vGap = 160; const hGap = 40; const padding = 20;
@@ -202,8 +231,8 @@ function computeLayout(){
     return positions[id];
   }
 
-  // If no roots (cycle), treat all nodes as pseudo-root list
-  const startRoots = roots.length ? roots : Object.keys(nodes);
+  // If no roots (cycle), treat all layout-participating nodes as pseudo-root list
+  const startRoots = roots.length ? roots : layoutIds;
   startRoots.forEach(r=>{ if(!visited.has(r)) layout(r,0); });
 
   // apply positions to elements, unless manual
@@ -213,8 +242,10 @@ function computeLayout(){
   container.style.height = Math.max(neededHeight, 600) + 'px';
 
   // center the whole layout horizontally in container
-  const minX = Math.min(...Object.values(positions).map(p=>p.x));
-  const maxX = Math.max(...Object.values(positions).map(p=>p.x));
+  const posValues = Object.values(positions);
+  if(posValues.length === 0) return; // nothing to layout
+  const minX = Math.min(...posValues.map(p=>p.x));
+  const maxX = Math.max(...posValues.map(p=>p.x));
   const layoutWidth = (maxX - minX) + nodeW;
   const offsetX = Math.max(padding, (rect.width - layoutWidth)/2 + container.scrollLeft) - minX;
 
@@ -262,7 +293,9 @@ function makeDraggable(el){
       if(oldParent && nodes[oldParent]){
         nodes[oldParent].meta_data.child_node = (nodes[oldParent].meta_data.child_node||[]).filter(x=>x!==thisId);
       }
-      nodes[thisId].meta_data.parent_node = targetId;
+  nodes[thisId].meta_data.parent_node = targetId;
+  // once attached, clear skip_layout so automatic layout will include this node
+  if(nodes[thisId].meta_data.skip_layout) delete nodes[thisId].meta_data.skip_layout;
       nodes[targetId].meta_data.child_node = Array.from(new Set([...(nodes[targetId].meta_data.child_node||[]), thisId]));
       persist(); refreshParentOptions();
     }
@@ -330,6 +363,8 @@ editor.saveBtn.addEventListener('click', ()=>{
     }
     if(newParent){
       nodes[newParent].meta_data.child_node = Array.from(new Set([...(nodes[newParent].meta_data.child_node||[]), activeId]));
+  // if the node was previously skipping layout, include it now that it has a parent
+  if(nodes[activeId].meta_data.skip_layout) delete nodes[activeId].meta_data.skip_layout;
     }
     persist();
     render();
@@ -365,9 +400,9 @@ document.getElementById('canvas-wrapper').addEventListener('dblclick', (e)=>{
   const x = e.clientX - ctnRect.left;
   const y = e.clientY - ctnRect.top;
 
-  // create unique id and node object
+  // create unique id and node object; mark it to skip layout so existing nodes won't be rebalanced
   const id = `node_${Date.now()}`;
-  nodes[id] = { type: 'sql_query', inputs: {}, meta_data: { display_name: id, parent_node: '', child_node: [] } };
+  nodes[id] = { type: 'sql_query', inputs: {}, meta_data: { display_name: id, parent_node: '', child_node: [], skip_layout: true } };
   persist(); refreshParentOptions(); render();
 
   // after render, position the newly created element and mark as manual so layout won't move it
@@ -375,7 +410,7 @@ document.getElementById('canvas-wrapper').addEventListener('dblclick', (e)=>{
     const el = document.querySelector(`.node-box[data-id="${id}"]`);
     if(!el) return;
     el.dataset.manual = 'true';
-    // place so that cursor is roughly at center-top of the node
+    // place so that cursor is roughly at center of the node
     const w = el.getBoundingClientRect().width || 200;
     const h = el.getBoundingClientRect().height || 100;
     el.style.left = (x - w/2) + 'px';
