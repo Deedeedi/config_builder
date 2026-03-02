@@ -1,0 +1,8 @@
+{
+  "types": [
+    "sql_query",
+    "llm_query",
+    "human_approval",
+    "template"
+  ]
+}

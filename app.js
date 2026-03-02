@@ -7,9 +7,10 @@ const sample = {
   "node_1":{
     "type":"sql_query",
     "inputs":{
-      "query":"select * from table_1 where period = {{current_period}}",
+      "query":"select * from table_1 where {{column_name}} = {{value}}",
       "table_1":"table_1_name",
-      "current_period":202503
+      "column_name":"column_2_name",
+      "value":202503
     },
     "meta_data":{
       "display_name":"Node 1",
@@ -18,19 +19,32 @@ const sample = {
     }
   },
   "node_2":{
-    "type":"spark_transform",
-    "inputs":{"script":"transform foo"},
+    "type":"sql_query",
+    "inputs":{      
+      "query":"select * from table_2 where {{column_name}} = {{value}}"},
+      "table_2":"table_2_name",
+      "column_name":"column_2_name",
+      "value":202503
+    },
     "meta_data":{"display_name":"Node 2","parent_node":"","child_node":["node_1","node_3"]}
-  },
-  "node_3":{
-    "type":"sql_query","inputs":{"query":"select 1"},
-    "meta_data":{"display_name":"Node 3","parent_node":"node_2","child_node":[]}
   }
-};
+
 
 let nodes = {};
 const container = document.getElementById('nodes-container');
 const svg = document.getElementById('links-svg');
+const TYPE_CONFIG_PATH = 'node_config.json';
+let allowedTypes = [];
+
+function loadTypes(){
+  fetch(TYPE_CONFIG_PATH).then(r=>r.json()).then(j=>{ allowedTypes = (j && j.types) || []; populateTypeSelect(); }).catch(()=>{ allowedTypes = ['sql_query','llm_query','human_approval','template']; populateTypeSelect(); });
+}
+
+function populateTypeSelect(){
+  const sel = document.getElementById('type');
+  if(!sel) return;
+  sel.innerHTML = allowedTypes.map(t=>`<option value="${t}">${t}</option>`).join('');
+}
 
 function load(){
   const raw = localStorage.getItem(NODES_KEY);
@@ -341,7 +355,14 @@ function refreshParentOptions(){
 
 let activeId = null;
 function openEditor(id){ activeId = id; const n = nodes[id]; editor.idSpan.textContent = id; editor.display.value = n.meta_data?.display_name || '';
-  editor.type.value = n.type || '';
+  // ensure type select contains current type; if unknown, add it temporarily
+  const sel = document.getElementById('type');
+  if(sel){
+    if(n.type && !allowedTypes.includes(n.type)){
+      const opt = document.createElement('option'); opt.value = n.type; opt.textContent = n.type; sel.appendChild(opt);
+    }
+    sel.value = n.type || '';
+  }
   editor.parent.value = n.meta_data?.parent_node || '';
   editor.inputs.value = JSON.stringify(n.inputs || {}, null, 2);
 }
@@ -350,7 +371,7 @@ editor.saveBtn.addEventListener('click', ()=>{
   if(!activeId) return alert('Select a node first');
   try{
     const inps = JSON.parse(editor.inputs.value || '{}');
-    nodes[activeId].type = editor.type.value;
+  nodes[activeId].type = document.getElementById('type')?.value || editor.type.value;
     nodes[activeId].inputs = inps;
     nodes[activeId].meta_data = nodes[activeId].meta_data || {};
     nodes[activeId].meta_data.display_name = editor.display.value;
@@ -374,7 +395,8 @@ editor.saveBtn.addEventListener('click', ()=>{
 
 editor.addBtn.addEventListener('click', ()=>{
   const id = `node_${Date.now()}`;
-  nodes[id] = {type:'sql_query', inputs:{}, meta_data:{display_name:id, parent_node:'', child_node:[]}};
+  const t = (document.getElementById('type') && document.getElementById('type').value) || 'sql_query';
+  nodes[id] = {type:t, inputs:{}, meta_data:{display_name:id, parent_node:'', child_node:[], skip_layout: true}};
   persist(); refreshParentOptions(); render(); openEditor(id);
 });
 
@@ -424,4 +446,5 @@ window.addEventListener('resize', ()=> drawLinks());
 
 // boot
 load(); refreshParentOptions(); render();
+loadTypes();
 
