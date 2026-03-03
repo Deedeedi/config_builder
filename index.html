@@ -39,9 +39,56 @@
               <option value="">(none)</option>
             </select>
           </label>
-          <label>Inputs (JSON)
-            <textarea id="inputs" rows="8"></textarea>
-          </label>
+          <!-- Inputs JSON removed; SQL builder is used for sql_query nodes -->
+          <div id="sql-builder" style="margin-top:10px;display:none;border-top:1px dashed rgba(255,255,255,0.03);padding-top:10px">
+            <label>SQL Input mode
+              <select id="sql-mode"><option value="predefined">pre-defined</option><option value="customized">customized</option></select>
+            </label>
+            <div id="sql-predef" style="margin-top:8px">
+              <div class="sql-row" id="sql-select-row">
+                <strong>SELECT</strong>
+                <select id="select-pool" class="label-pool" multiple size="4" style="width:100%"></select>
+                <button class="sql-check">Apply</button>
+              </div>
+              <div class="sql-row" id="sql-from-row" style="margin-top:8px">
+                <strong>FROM</strong>
+                <select id="from-pool" class="label-pool" size="4" style="width:100%"></select>
+                <button class="sql-check">Apply</button>
+              </div>
+              <div class="sql-row" id="sql-where-row" style="margin-top:8px">
+                <strong>WHERE</strong>
+                <div style="margin-top:6px">
+                  <select id="where-pool" class="label-pool" size="4" style="width:100%;"></select>
+                </div>
+                <div style="margin-top:6px">
+                  <select id="where-op" style="margin-left:0"><option>=</option><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option><option>IN</option><option>BETWEEN</option></select>
+                  <input id="where-value" placeholder="value" style="margin-left:6px;padding:6px;border-radius:6px" />
+                  <button class="sql-check">Apply</button>
+                  <button class="sql-skip">Skip</button>
+                </div>
+              </div>
+              <div class="sql-row" id="sql-join-row" style="margin-top:8px">
+                <strong>JOIN</strong>
+                <select id="join-type"><option>LEFT JOIN</option><option>RIGHT JOIN</option><option>INNER JOIN</option><option>CROSS JOIN</option></select>
+                <select id="join-pool" class="label-pool" size="4" style="width:60%"></select>
+                <button class="sql-check">Apply</button>
+                <button class="sql-skip">Skip</button>
+              </div>
+              <div class="sql-row" id="sql-on-row" style="margin-top:8px;display:none">
+                <strong>ON</strong>
+                <select id="on-left" class="label-pool" size="4" style="width:45%"></select>
+                <select id="on-right" class="label-pool" size="4" style="width:45%"></select>
+                <button class="sql-check">Check</button>
+              </div>
+            </div>
+            <div id="sql-custom" style="display:none;margin-top:8px">
+              <textarea id="sql-custom-text" rows="4" style="width:100%;font-family:monospace"></textarea>
+            </div>
+            <div style="margin-top:8px">
+              <label>Generated SQL</label>
+              <textarea id="sql-generated" rows="4" style="width:100%;font-family:monospace"></textarea>
+            </div>
+          </div>
           <div class="editor-actions">
             <button id="save-btn">Save</button>
             <button id="add-btn">Add Node</button>

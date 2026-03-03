@@ -7,37 +7,26 @@ const sample = {
   "node_1":{
     "type":"sql_query",
     "inputs":{
-      "query":"select * from table_1 where {{column_name}} = {{value}}",
-      "table_1":"table_1_name",
-      "column_name":"column_2_name",
-      "value":202503
+      "query":"select * from table_1 where period = 202501",
+      "table_1":"table_1_name"
     },
     "meta_data":{
       "display_name":"Node 1",
-      "parent_node":"node_2",
-      "child_node":["node_1_1","node_1_2"]
+      "parent_node":"",
+      "child_node":[]
     }
-  },
-  "node_2":{
-    "type":"sql_query",
-    "inputs":{      
-      "query":"select * from table_2 where {{column_name}} = {{value}}"},
-      "table_2":"table_2_name",
-      "column_name":"column_2_name",
-      "value":202503
-    },
-    "meta_data":{"display_name":"Node 2","parent_node":"","child_node":["node_1","node_3"]}
   }
-
+};
 
 let nodes = {};
 const container = document.getElementById('nodes-container');
 const svg = document.getElementById('links-svg');
 const TYPE_CONFIG_PATH = 'node_config.json';
 let allowedTypes = [];
+let typeConfig = { metric_schema: {}, input_tables: [] };
 
 function loadTypes(){
-  fetch(TYPE_CONFIG_PATH).then(r=>r.json()).then(j=>{ allowedTypes = (j && j.types) || []; populateTypeSelect(); }).catch(()=>{ allowedTypes = ['sql_query','llm_query','human_approval','template']; populateTypeSelect(); });
+  fetch(TYPE_CONFIG_PATH).then(r=>r.json()).then(j=>{ allowedTypes = (j && j.types) || []; typeConfig.metric_schema = (j && j.metric_schema) || {}; typeConfig.input_tables = (j && j.input_tables) || []; populateTypeSelect(); populateSqlPools(); }).catch(()=>{ allowedTypes = ['sql_query','llm_query','human_approval','template']; populateTypeSelect(); });
 }
 
 function populateTypeSelect(){
@@ -342,7 +331,6 @@ const editor = {
   display: document.getElementById('display_name'),
   type: document.getElementById('type'),
   parent: document.getElementById('parent_node'),
-  inputs: document.getElementById('inputs'),
   saveBtn: document.getElementById('save-btn'),
   addBtn: document.getElementById('add-btn'),
   delBtn: document.getElementById('del-btn')
@@ -351,6 +339,61 @@ const editor = {
 function refreshParentOptions(){
   const keys = Object.keys(nodes);
   editor.parent.innerHTML = `<option value="">(none)</option>` + keys.map(k=>`<option value="${k}">${k} — ${nodes[k].meta_data?.display_name||k}</option>`).join('');
+}
+
+// SQL builder helpers
+function populateSqlPools(){
+  const selectPool = document.getElementById('select-pool'); if(selectPool){ selectPool.innerHTML = ''; Object.keys(typeConfig.metric_schema || {}).forEach(k=>{ const opt = document.createElement('option'); opt.value = k; opt.textContent = k; selectPool.appendChild(opt); }); }
+  const wherePool = document.getElementById('where-pool'); if(wherePool){ wherePool.innerHTML = ''; Object.keys(typeConfig.metric_schema || {}).forEach(k=>{ const opt = document.createElement('option'); opt.value = k; opt.textContent = k; wherePool.appendChild(opt); }); }
+  const fromPool = document.getElementById('from-pool'); if(fromPool){ fromPool.innerHTML = ''; (typeConfig.input_tables||[]).forEach(t=>{ const opt = document.createElement('option'); opt.value = t; opt.textContent = t; fromPool.appendChild(opt); }); }
+  const joinPool = document.getElementById('join-pool'); if(joinPool){ joinPool.innerHTML=''; (typeConfig.input_tables||[]).forEach(t=>{ const opt = document.createElement('option'); opt.value = t; opt.textContent = t; joinPool.appendChild(opt); }); }
+}
+
+function getSchemaColumns(table){
+  if(!table) return [];
+  if(typeConfig.table_schemas && typeConfig.table_schemas[table]) return Object.keys(typeConfig.table_schemas[table]);
+  return Object.keys(typeConfig.metric_schema || {});
+}
+
+function populateOnColumns(fromTable, joinTable){
+  const left = document.getElementById('on-left');
+  const right = document.getElementById('on-right');
+  const aAlias = 'a'; const bAlias = 'b';
+  if(left){ left.innerHTML = ''; const cols = getSchemaColumns(fromTable); cols.forEach(c=>{ const opt = document.createElement('option'); opt.value = `${aAlias}.${c}`; opt.textContent = c; left.appendChild(opt); }); }
+  if(right){ right.innerHTML = ''; const cols = getSchemaColumns(joinTable); cols.forEach(c=>{ const opt = document.createElement('option'); opt.value = `${bAlias}.${c}`; opt.textContent = c; right.appendChild(opt); }); }
+}
+
+function updateGeneratedSql(){
+  const mode = document.getElementById('sql-mode')?.value || 'predefined';
+  if(mode === 'customized'){ document.getElementById('sql-generated').value = document.getElementById('sql-custom-text').value; return; }
+  const selectPool = document.getElementById('select-pool');
+  const sels = selectPool ? (Array.from(selectPool.selectedOptions).map(o=>`a.${o.value}`).join(', ') || 'a.*') : 'a.*';
+  const from = document.getElementById('from-pool')?.value || '';
+  const join = document.getElementById('join-pool')?.value || '';
+  const whereSel = document.getElementById('where-pool');
+  const whereCol = whereSel ? (`a.${whereSel.value}`) : '';
+  const whereOp = document.getElementById('where-op')?.value || '';
+  const whereValRaw = document.getElementById('where-value')?.value || '';
+  const whereVal = whereValRaw.trim();
+  const joinType = document.getElementById('join-type')?.value || '';
+  // on-left and on-right values already include alias prefix
+  const leftCol = Array.from((document.getElementById('on-left')||{selectedOptions:[]}).selectedOptions).map(o=>o.value)[0];
+  const rightCol = Array.from((document.getElementById('on-right')||{selectedOptions:[]}).selectedOptions).map(o=>o.value)[0];
+  let q = `SELECT ${sels} FROM ${from} a`;
+  if(whereCol && whereOp && whereVal !== ''){
+    if(whereOp === 'IN'){
+      const items = whereVal.split(',').map(s=>s.trim()).filter(Boolean).map(s=> isNaN(s) ? `'${s.replace(/'/g,"\\'")}'` : s);
+      q += ` WHERE ${whereCol} IN (${items.join(', ')})`;
+    } else if(whereOp === 'BETWEEN'){
+      const parts = whereVal.split(',').map(s=>s.trim());
+      if(parts.length>=2) q += ` WHERE ${whereCol} BETWEEN ${parts[0]} AND ${parts[1]}`;
+    } else {
+      const val = isNaN(whereVal) ? `'${whereVal.replace(/'/g,"\\'")}'` : whereVal;
+      q += ` WHERE ${whereCol} ${whereOp} ${val}`;
+    }
+  }
+  if(join){ q += ` ${joinType} ${join} b`; if(leftCol && rightCol) q += ` ON ${leftCol} = ${rightCol}`; }
+  document.getElementById('sql-generated').value = q;
 }
 
 let activeId = null;
@@ -364,15 +407,24 @@ function openEditor(id){ activeId = id; const n = nodes[id]; editor.idSpan.textC
     sel.value = n.type || '';
   }
   editor.parent.value = n.meta_data?.parent_node || '';
-  editor.inputs.value = JSON.stringify(n.inputs || {}, null, 2);
+  // populate SQL pools and generated SQL if sql_query
+  populateSqlPools();
+  if(n.type === 'sql_query'){
+    document.getElementById('sql-generated').value = n.inputs?.query || '';
+  }
 }
 
 editor.saveBtn.addEventListener('click', ()=>{
   if(!activeId) return alert('Select a node first');
   try{
-    const inps = JSON.parse(editor.inputs.value || '{}');
-  nodes[activeId].type = document.getElementById('type')?.value || editor.type.value;
-    nodes[activeId].inputs = inps;
+    nodes[activeId].type = document.getElementById('type')?.value || editor.type.value;
+    nodes[activeId].inputs = nodes[activeId].inputs || {};
+    if(nodes[activeId].type === 'sql_query'){
+      nodes[activeId].inputs.query = document.getElementById('sql-generated')?.value || nodes[activeId].inputs.query || '';
+      // also persist selected from/join for convenience
+      nodes[activeId].inputs._from = document.getElementById('from-pool')?.value || nodes[activeId].inputs._from || '';
+      nodes[activeId].inputs._join = document.getElementById('join-pool')?.value || nodes[activeId].inputs._join || '';
+    }
     nodes[activeId].meta_data = nodes[activeId].meta_data || {};
     nodes[activeId].meta_data.display_name = editor.display.value;
     const oldParent = nodes[activeId].meta_data.parent_node || '';
@@ -412,6 +464,45 @@ editor.delBtn.addEventListener('click', ()=>{
 
 // click empty space to deselect
 document.getElementById('canvas-wrapper').addEventListener('click', ()=>{ activeId=null; editor.idSpan.textContent='(none)'; });
+
+// Delegate SQL builder button clicks
+document.addEventListener('click', (e)=>{
+  if(!e.target) return;
+  if(e.target.matches && e.target.matches('.sql-check')){
+    const row = e.target.closest && e.target.closest('.sql-row'); if(!row) return;
+    if(row.id === 'sql-select-row'){
+      // apply selects -> enable FROM
+      document.getElementById('sql-from-row')?.classList.remove('disabled');
+      updateGeneratedSql();
+    }
+    if(row.id === 'sql-from-row'){
+      // apply from -> populate ON-left and enable WHERE
+      const fromVal = document.getElementById('from-pool')?.value || '';
+      const joinVal = document.getElementById('join-pool')?.value || '';
+      populateOnColumns(fromVal, joinVal);
+      document.getElementById('sql-where-row')?.classList.remove('disabled');
+      updateGeneratedSql();
+    }
+    if(row.id === 'sql-where-row'){
+      document.getElementById('sql-join-row')?.classList.remove('disabled'); updateGeneratedSql();
+    }
+    if(row.id === 'sql-join-row'){
+      const joinVal = document.getElementById('join-pool')?.value || '';
+      const fromVal = document.getElementById('from-pool')?.value || '';
+      populateOnColumns(fromVal, joinVal);
+      document.getElementById('sql-on-row')?.classList.remove('disabled'); document.getElementById('sql-on-row').style.display='block';
+      updateGeneratedSql();
+    }
+    if(row.id === 'sql-on-row') updateGeneratedSql();
+  }
+
+  if(e.target.matches && e.target.matches('.sql-skip')){
+    const row = e.target.closest && e.target.closest('.sql-row'); if(!row) return;
+    if(row.id === 'sql-where-row') document.getElementById('sql-join-row')?.classList.remove('disabled');
+    if(row.id === 'sql-join-row'){ document.getElementById('sql-on-row')?.classList.add('disabled'); document.getElementById('sql-on-row').style.display='none'; }
+    updateGeneratedSql();
+  }
+});
 
 // double click empty canvas to create a new node at cursor position
 document.getElementById('canvas-wrapper').addEventListener('dblclick', (e)=>{

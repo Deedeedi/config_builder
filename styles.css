@@ -35,3 +35,17 @@ footer{padding:10px 16px;border-top:1px solid rgba(255,255,255,0.03);font-size:1
 
 /* small responsive */
 @media(max-width:900px){aside#editor{display:none}}
+
+/* SQL builder UI */
+.label-pool{display:flex;flex-wrap:wrap;gap:6px;margin-left:8px}
+.label{background:#021826;border:1px solid rgba(255,255,255,0.04);padding:6px 8px;border-radius:6px;font-size:12px;cursor:pointer}
+.label:hover{background:#062f35}
+.label-chosen{display:flex;gap:6px;flex-wrap:wrap;margin-left:8px}
+.chip{background:linear-gradient(90deg,#075a60,#064b52);padding:6px 8px;border-radius:6px;font-size:12px;color:#e6eef6;cursor:grab}
+.chip.dragging{opacity:0.7;transform:scale(0.98)}
+.chip.placeholder{background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.06)}
+
+/* Disabled row state for SQL builder */
+.sql-row.disabled{opacity:0.45}
+.sql-row.disabled select,.sql-row.disabled input,.sql-row.disabled button{pointer-events:none}
+
