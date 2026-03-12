@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+        window.addEventListener('load', () => {
+            localStorage.removeItem('factor_nodes_v1');
+            console.log('Nodes cleared from localStorage');
+            document.body.innerHTML = '<h1>✓ Nodes cleared successfully</h1><p>Refresh the app to start with fresh nodes.</p>';
+        });
+    </script>
+</head>
+<body>
+    <h1>Clearing nodes...</h1>
+</body>
+</html>

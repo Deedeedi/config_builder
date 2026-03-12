@@ -1,15 +1,14 @@
 {
-  "node_1":{
-    "type":"sql_query",
-    "inputs":{
-      "query":"select * from table_1 where period = {{current_period}}",
-      "table_1":"table_1_name",
-      "current_period":202503
+  "node_1": {
+    "type": "sql_query",
+    "inputs": {
+      "query": "select * from table_1 where period = 202501",
+      "table_1": "table_1_name"
     },
-    "meta_data":{
-      "display_name":"Node 1",
-      "parent_node":"node_2",
-      "child_node":["node_1_1","node_1_2"]
+    "meta_data": {
+      "display_name": "Node 1",
+      "parent_node": "",
+      "child_node": []
     }
   }
 }

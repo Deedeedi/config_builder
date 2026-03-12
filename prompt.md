@@ -4,15 +4,19 @@
         This document describes the Node Editor and Canvas behavior implemented in this repository (updated to reflect recent changes in the codebase and conversation).
 
         ## Data model
-        Nodes are plain JSON objects keyed by id. Example:
+        Nodes are plain JSON objects keyed by id. Example for SELECT MODE:
 
         ```json
         "node_1": {
             "type": "sql_query",
             "inputs": {
-                "query": "select * from table_1 where period = 202501",
+                "mode": "select",
+                "query": "select col1, col2 from table_1 where period = 202501",
+                "_select": ["col1", "col2"],
                 "_from": "table_1",
-                "_join": "table_2"
+                "_where": [
+                    {"column": "period", "operator": "=", "value": "202501"}
+                ]
             },
             "meta_data": {
                 "display_name": "Node 1",
@@ -22,8 +26,27 @@
         }
         ```
 
+        Example for CUSTOMIZED MODE:
+
+        ```json
+        "node_2": {
+            "type": "sql_query",
+            "inputs": {
+                "mode": "customized",
+                "query": "select * from table_1 where period > 202501 or metric_value < 100"
+            },
+            "meta_data": {
+                "display_name": "Node 2",
+                "parent_node": "",
+                "child_node": []
+            }
+        }
+        ```
+
         - `type` is one of the allowed node types defined in `node_config.json`.
-        - `inputs.query` holds the generated or user-provided SQL for `sql_query` nodes.
+        - `inputs.mode` indicates the current mode: `"select"` for SELECT MODE or `"customized"` for CUSTOMIZED MODE.
+        - For SELECT MODE: `inputs._select`, `inputs._from`, and `inputs._where` hold the structured query components. `inputs.query` is auto-generated from these fields.
+        - For CUSTOMIZED MODE: only `inputs.query` is used; the `_select`, `_from`, and `_where` fields are empty or absent.
         - `meta_data.parent_node` and `meta_data.child_node` define the hierarchy used by the canvas.
 
         ## Canvas / Diagram
@@ -53,97 +76,13 @@
         ```
 
         ## Node Editor — `sql_query` builder
-        - Mode: the editor supports two modes for `sql_query` nodes: `pre-defined` (a guided multi-row builder) and `customized` (free-text SQL input).
-
-        Pre-defined builder flow (rows):
-        User select from different modes below:
+        - Mode: the editor supports two modes for `sql_query` nodes: `SELECT MODE` and `CUSTOMIZED MODE` (free-text SQL input). The node editor UI displays different views depending on the active mode.
         ### SELECT MODE:
-        1. SELECT — multi-select a set of column names (populated from `table_schemas[table]` if provided, otherwise `metric_schema`)
-        2. FROM — choose a single table from `input_tables`. The generated SQL uses `FROM <table>`. Applying FROM populates the ON-left select with columns from the chosen table.
-        3. WHERE — choose a column (from the same schema) and an operator (=, >, <, >=, <=, IN, BETWEEN) and enter value(s).
-        ### JOIN MODE:
-        1. Choose table a first from a set of tables. Check node_config.json>schema, to find the corresponding schema for table a. SELECT (Table a) — multi-select a set of column names (populated from `table_schemas[table]` if provided, otherwise `metric_schema`). Selected columns are prefixed with alias `a.` in the generated SQL.
-        2. Choose table b then from a set of tables. Check node_config.json>schema, to find the corresponding schema for table b. SELECT (Table b) — multi-select a set of column names (populated from `table_schemas[table]` if provided, otherwise `metric_schema`). Selected columns are prefixed with alias `b.` in the generated SQL.
-        3. FROM — automatically fill table a's name in generated SQL. The generated SQL uses `FROM <table> a` (alias `a`). 
-        4. JOIN — choose a join type (LEFT/RIGHT/INNER/CROSS) and automatically populates table b's name. The generated SQL uses `<LEFT/RIGHT/INNER/CROSS> JOIN <table> b` (alias `b`). 
-        5. ON — choose a left and right column to join on. Options are populated as `a.<col>` (left) and `b.<col>` (right). The generated SQL uses `ON a.col = b.col`.
-        6. WHERE — choose a column (from the same schema) and an operator (=, >, <, >=, <=, IN, BETWEEN) and enter value(s). WHERE applies to `a.<column>` and `b.<column>` in the SQL.
-        ### GROUPBY MODE:
-        1. SELECT — choose one or more grouping columns (multi-select) plus any aggregate targets.
-            - Grouping columns are selected from the chosen table's schema and will appear in the GROUP BY clause (aliased as `a.<col>`).
-            - For each non-grouped column the user can optionally pick an aggregate from a droplist of functions: AVG, SUM, MIN, MAX, COUNT, COUNT DISTINCT, STDDEV, VARIANCE (default: SUM). Aggregates are emitted as e.g. `SUM(a.value) AS sum_value`.
-            - UI note: show grouping columns and aggregate selections as separate rows/chips so it's clear which columns are grouped vs aggregated.
-
-        2. AGGREGATE DROPLIST — per-column control:
-            - A compact droplist next to each selectable column with entries: AVG, SUM, MIN, MAX, COUNT, COUNT DISTINCT, STDDEV, VARIANCE, NONE.
-            - Choosing NONE treats the column as a grouping column (if selected in the group area) or disallows it from SELECT unless also present in GROUP BY.
-            - Selecting an aggregate marks that column as an aggregated selector and disables it from appearing in the GROUP BY list automatically.
-
-        3. FROM — identical to other modes: choose table from input_tables. SELECT and GROUP BY options are populated from `table_schemas[table]` if present, otherwise from `metric_schema`.
-
-        4. WHERE — standard row-level filters applied before grouping (applies to `a.<column>`). Same operators as WHERE in other modes (=, >, <, >=, <=, IN, BETWEEN).
-
-        5. GROUP BY — shows chosen grouping columns; user can reorder group columns if needed (affects output but not SQL correctness). All non-aggregated SELECT columns are automatically included here.
-
-        6. HAVING (optional) — builder for conditions on aggregated expressions:
-            - Choose an aggregate expression (e.g., SUM(a.value)), an operator, and value(s). Operators include (=, >, <, >=, <=, IN, BETWEEN).
-            - HAVING is emitted after GROUP BY and can reference the selected aggregate aliases or re-create the aggregate expression.
-
-        7. ORDER BY (optional) — allow ordering by grouping columns or aggregate expressions; provide ASC/DESC control.
-
-        8. Generated SQL:
-            - The editor composes SQL from the above selections. Examples:
-              - Single-group, one aggregate:
-                 SELECT period, SUM(metric_value) AS sum_metric_value
-                 FROM table_1
-                 WHERE period >= '202501'
-                 GROUP BY period
-              - Multi-group with HAVING:
-                 SELECT category, period, AVG(metric_value) AS avg_value, COUNT(*) AS cnt
-                 FROM table_1
-                 GROUP BY category, period
-                 HAVING AVG(metric_value) > 100
-                 ORDER BY avg_value DESC
-
-        ### PIPELINE MODE
-        [TBD]
-        Notes:
-        - The UI enforces SQL correctness rules: any non-aggregated column in SELECT must be included in GROUP BY. If user tries to select a non-aggregated column without grouping it, show a validation prompt and offer to add it to GROUP BY automatically.
-        - Aggregates applied to JOIN mode should allow selecting the source table (a or b) for the aggregated column.
-        - Final SQL appears in the generated text area and remains editable by the user; manual edits persist on Save.
-        - Consider adding a "COUNT(*)" quick button for common counts and a "DISTINCT" toggle for aggregates that support it.
-
-        **Note**:
-        - Alias convention: the `FROM` table is aliased as `a`, the `JOIN` table as `b`. All selected columns are emitted with these aliases in the generated SQL (e.g., `SELECT a.period, a.metric_value FROM table_1 a LEFT JOIN table_2 b ON a.id = b.id`).
-        - After finishing the flow the editor shows a generated SQL text area. The user can still edit the SQL by hand; the edited SQL is persisted on Save.
-
-        Customized mode:
-        - The user can paste/type arbitrary SQL into a free-text field; this will be saved as-is.
-
-        ## Persistence
-        - Node JSON is persisted to `localStorage` under the key `factor_nodes_v1`.
-        - `sql_query` nodes store their final SQL in `inputs.query` and may also persist `_from` and `_join` helper fields.
-
-        ## UX notes & TODOs
-        - SELECT ordering currently uses the browser's multi-select ordering; if deterministic ordering is required, add an explicit ordering UI (up/down controls or draggable chips).
-        - Multiple WHERE conditions (AND/OR) are not yet supported; consider an 'Add condition' UI for complex filters.
-        - Server-side saving of `node_config.json` was discussed but not applied; if you want server persistence, I can add an API endpoint and write-safe handling.
-
-        ---
-
-        This spec mirrors the current implementation. If you'd like any behavior changed (different alias letters, deterministic SELECT ordering, richer WHERE builder, or server-backed config saving), tell me which item to implement next and I'll proceed.
-        """
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        The editor displays the following rows:
+        1. SELECT — multi-select a set of column names (populated from `table_schemas[table]` if provided, otherwise `metric_schema`). If 0 columns are selected, the auto-generated SQL defaults to `SELECT *`.
+        2. FROM — choose a single table from `input_tables`. The generated SQL uses `FROM <table>`. Applying FROM populates the ON-left select with columns from the chosen table. If the FROM table is changed after columns have been selected, the selected columns are cleared and the column list is filtered to the new table's schema.
+        3. WHERE — add one or more conditions by choosing a column (from the same schema), an operator (=, >, <, >=, <=, IN, BETWEEN), and entering value(s). For BETWEEN, users enter two values (start and end). For IN, users freely input values in a textbox. Multiple conditions are combined using user-selectable AND/OR operators between each condition. The auto-generated SQL handles parentheses as needed.
+        4. Auto-generated SQL — the textbox displays the SQL generated from the SELECT, FROM, and WHERE selections above and updates in real-time as the user makes selections. The textbox is editable, allowing users to manually modify the SQL. If the user manually edits the SQL, the mode automatically switches to CUSTOMIZED MODE.
+        5. Clear/Reset button — clears all SELECT, FROM, WHERE, and SQL fields, returning the editor to an empty state in SELECT MODE.
+        ### CUSTOMIZED MODE:
+        The editor displays only the SQL textbox. Users can write or edit SQL scripts freely. The SELECT, FROM, and WHERE rows are not visible in this mode. Switching from CUSTOMIZED MODE back to SELECT MODE resets all SELECT, FROM, and WHERE fields.
