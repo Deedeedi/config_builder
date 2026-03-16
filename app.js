@@ -23,10 +23,17 @@ const container = document.getElementById('nodes-container');
 const svg = document.getElementById('links-svg');
 const TYPE_CONFIG_PATH = 'node_config.json';
 let allowedTypes = [];
-let typeConfig = { metric_schema: {}, input_tables: [] };
+let typeConfig = { metric_schema: {}, table_schemas: {}, input_tables: [] };
 
 function loadTypes(){
-  fetch(TYPE_CONFIG_PATH).then(r=>r.json()).then(j=>{ allowedTypes = (j && j.types) || []; typeConfig.metric_schema = (j && j.metric_schema) || {}; typeConfig.input_tables = (j && j.input_tables) || []; populateTypeSelect(); populateSqlPools(); }).catch(()=>{ allowedTypes = ['sql_query','llm_query','human_approval','template']; populateTypeSelect(); });
+  fetch(TYPE_CONFIG_PATH).then(r=>r.json()).then(j=>{ 
+    allowedTypes = (j && j.types) || []; 
+    typeConfig.metric_schema = (j && j.metric_schema) || {}; 
+    typeConfig.table_schemas = (j && j.table_schemas) || {}; 
+    typeConfig.input_tables = (j && j.input_tables) || []; 
+    populateTypeSelect(); 
+    populateSqlPools(); 
+  }).catch(()=>{ allowedTypes = ['sql_query','llm_query','human_approval','template']; populateTypeSelect(); });
 }
 
 function populateTypeSelect(){
@@ -343,16 +350,106 @@ function refreshParentOptions(){
 
 // SQL builder helpers
 function populateSqlPools(){
-  const selectPool = document.getElementById('select-pool'); if(selectPool){ selectPool.innerHTML = ''; Object.keys(typeConfig.metric_schema || {}).forEach(k=>{ const opt = document.createElement('option'); opt.value = k; opt.textContent = k; selectPool.appendChild(opt); }); }
-  const wherePool = document.getElementById('where-pool'); if(wherePool){ wherePool.innerHTML = ''; Object.keys(typeConfig.metric_schema || {}).forEach(k=>{ const opt = document.createElement('option'); opt.value = k; opt.textContent = k; wherePool.appendChild(opt); }); }
-  const fromPool = document.getElementById('from-pool'); if(fromPool){ fromPool.innerHTML = ''; (typeConfig.input_tables||[]).forEach(t=>{ const opt = document.createElement('option'); opt.value = t; opt.textContent = t; fromPool.appendChild(opt); }); }
-  const joinPool = document.getElementById('join-pool'); if(joinPool){ joinPool.innerHTML=''; (typeConfig.input_tables||[]).forEach(t=>{ const opt = document.createElement('option'); opt.value = t; opt.textContent = t; joinPool.appendChild(opt); }); }
+  // Populate SELECT with metric_schema by default
+  const selectPool = document.getElementById('select-pool');
+  if(selectPool){
+    selectPool.innerHTML = '';
+    const cols = Object.keys(typeConfig.metric_schema || {});
+    cols.forEach(k=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      selectPool.appendChild(opt);
+    });
+    // Initialize current schema to metric_schema
+    currentSchemaColumns = cols;
+  }
+  
+  // Populate WHERE with metric_schema by default
+  const wherePool = document.getElementById('where-pool');
+  if(wherePool){
+    wherePool.innerHTML = '';
+    const cols = Object.keys(typeConfig.metric_schema || {});
+    cols.forEach(k=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      wherePool.appendChild(opt);
+    });
+  }
+  
+  // Populate FROM with input_tables
+  const fromPool = document.getElementById('from-pool');
+  if(fromPool){
+    fromPool.innerHTML = '';
+    (typeConfig.input_tables||[]).forEach(t=>{
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      fromPool.appendChild(opt);
+    });
+  }
+  
+  // Populate JOIN with input_tables
+  const joinPool = document.getElementById('join-pool');
+  if(joinPool){
+    joinPool.innerHTML='';
+    (typeConfig.input_tables||[]).forEach(t=>{
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      joinPool.appendChild(opt);
+    });
+  }
 }
+
+// Track the current schema columns to detect changes
+let currentSchemaColumns = [];
 
 function getSchemaColumns(table){
   if(!table) return [];
   if(typeConfig.table_schemas && typeConfig.table_schemas[table]) return Object.keys(typeConfig.table_schemas[table]);
   return Object.keys(typeConfig.metric_schema || {});
+}
+
+// Update SELECT and WHERE columns based on selected FROM table
+function updateSelectColumnsForTable(tableName){
+  const selectPool = document.getElementById('select-pool');
+  const wherePool = document.getElementById('where-pool');
+  const cols = getSchemaColumns(tableName);
+  
+  // Check if schema has changed
+  const schemaChanged = cols.length !== currentSchemaColumns.length || 
+                        !cols.every(c => currentSchemaColumns.includes(c));
+  
+  if(selectPool){
+    // Only clear previously selected columns if schema changed
+    if(schemaChanged){
+      selectPool.value = '';
+    }
+    
+    // Repopulate with columns from the selected table
+    selectPool.innerHTML = '';
+    cols.forEach(c=>{
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      selectPool.appendChild(opt);
+    });
+  }
+  
+  if(wherePool){
+    wherePool.innerHTML = '';
+    cols.forEach(c=>{
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      wherePool.appendChild(opt);
+    });
+  }
+  
+  // Update current schema for future comparisons
+  currentSchemaColumns = cols;
 }
 
 function populateOnColumns(fromTable, joinTable){
@@ -364,35 +461,43 @@ function populateOnColumns(fromTable, joinTable){
 }
 
 function updateGeneratedSql(){
-  const mode = document.getElementById('sql-mode')?.value || 'predefined';
-  if(mode === 'customized'){ document.getElementById('sql-generated').value = document.getElementById('sql-custom-text').value; return; }
   const selectPool = document.getElementById('select-pool');
   const sels = selectPool ? (Array.from(selectPool.selectedOptions).map(o=>`a.${o.value}`).join(', ') || 'a.*') : 'a.*';
   const from = document.getElementById('from-pool')?.value || '';
-  const join = document.getElementById('join-pool')?.value || '';
-  const whereSel = document.getElementById('where-pool');
-  const whereCol = whereSel ? (`a.${whereSel.value}`) : '';
-  const whereOp = document.getElementById('where-op')?.value || '';
-  const whereValRaw = document.getElementById('where-value')?.value || '';
-  const whereVal = whereValRaw.trim();
-  const joinType = document.getElementById('join-type')?.value || '';
-  // on-left and on-right values already include alias prefix
-  const leftCol = Array.from((document.getElementById('on-left')||{selectedOptions:[]}).selectedOptions).map(o=>o.value)[0];
-  const rightCol = Array.from((document.getElementById('on-right')||{selectedOptions:[]}).selectedOptions).map(o=>o.value)[0];
-  let q = `SELECT ${sels} FROM ${from} a`;
-  if(whereCol && whereOp && whereVal !== ''){
-    if(whereOp === 'IN'){
-      const items = whereVal.split(',').map(s=>s.trim()).filter(Boolean).map(s=> isNaN(s) ? `'${s.replace(/'/g,"\\'")}'` : s);
-      q += ` WHERE ${whereCol} IN (${items.join(', ')})`;
-    } else if(whereOp === 'BETWEEN'){
-      const parts = whereVal.split(',').map(s=>s.trim());
-      if(parts.length>=2) q += ` WHERE ${whereCol} BETWEEN ${parts[0]} AND ${parts[1]}`;
+  
+  let q = `SELECT ${sels}`;
+  if(from) q += ` FROM ${from} a`;
+  
+  // Build WHERE clause from conditions
+  const conditions = Array.from(document.querySelectorAll('.where-condition')).map(cond => {
+    const col = cond.querySelector('.where-col')?.value;
+    const op = cond.querySelector('.where-op')?.value;
+    const val = cond.querySelector('.where-val')?.value?.trim();
+    if(!col || !op || val === '') return null;
+    
+    if(op === 'IN'){
+      const items = val.split(',').map(s=>s.trim()).filter(Boolean).map(s=> isNaN(s) ? `'${s.replace(/'/g,"\\'")}'` : s);
+      return `a.${col} IN (${items.join(', ')})`;
+    } else if(op === 'BETWEEN'){
+      const parts = val.split(',').map(s=>s.trim());
+      // Generate BETWEEN clause even if only one value entered (for real-time updates)
+      if(parts.length >= 2){
+        return `a.${col} BETWEEN ${parts[0]} AND ${parts[1]}`;
+      } else if(parts.length === 1 && parts[0]){
+        // While typing, show partial BETWEEN clause for preview
+        return `a.${col} BETWEEN ${parts[0]} AND ...`;
+      }
+      return null;
     } else {
-      const val = isNaN(whereVal) ? `'${whereVal.replace(/'/g,"\\'")}'` : whereVal;
-      q += ` WHERE ${whereCol} ${whereOp} ${val}`;
+      const value = isNaN(val) ? `'${val.replace(/'/g,"\\'")}'` : val;
+      return `a.${col} ${op} ${value}`;
     }
+  }).filter(Boolean);
+  
+  if(conditions.length > 0){
+    q += ` WHERE ${conditions.join(' AND ')}`;
   }
-  if(join){ q += ` ${joinType} ${join} b`; if(leftCol && rightCol) q += ` ON ${leftCol} = ${rightCol}`; }
+  
   document.getElementById('sql-generated').value = q;
 }
 
@@ -409,8 +514,195 @@ function openEditor(id){ activeId = id; const n = nodes[id]; editor.idSpan.textC
   editor.parent.value = n.meta_data?.parent_node || '';
   // populate SQL pools and generated SQL if sql_query
   populateSqlPools();
+  console.log('openEditor called for node:', id, 'type:', n.type);
   if(n.type === 'sql_query'){
+    // Load SQL query into generated SQL field
     document.getElementById('sql-generated').value = n.inputs?.query || '';
+    document.getElementById('sql-custom-text').value = n.inputs?.query || '';
+    showSqlBuilderButton();
+  } else {
+    hideSqlBuilderButton();
+  }
+}
+
+function showSqlBuilderButton(){
+  const btn = document.getElementById('show-sql-builder-btn');
+  if(btn) {
+    btn.classList.add('visible');
+    console.log('✓ SQL builder button shown');
+  }
+}
+
+function hideSqlBuilderButton(){
+  const btn = document.getElementById('show-sql-builder-btn');
+  if(btn) {
+    btn.classList.remove('visible');
+    console.log('✓ SQL builder button hidden');
+  }
+  hideSqlBuilder();
+}
+
+function showSqlBuilder(){
+  const builder = document.getElementById('sql-builder');
+  if(builder) builder.style.display = 'block';
+}
+
+function hideSqlBuilder(){
+  const builder = document.getElementById('sql-builder');
+  if(builder) builder.style.display = 'none';
+}
+
+// SQL Builder mode handling
+function setupSqlModeHandler(){
+  const modeSelect = document.getElementById('sql-mode');
+  if(!modeSelect) return;
+  
+  modeSelect.addEventListener('change', ()=>{
+    const mode = modeSelect.value;
+    const selectView = document.getElementById('sql-mode-select');
+    const customView = document.getElementById('sql-mode-customized');
+    
+    if(mode === 'select'){
+      selectView.style.display = 'block';
+      customView.style.display = 'none';
+      // Clear custom SQL
+      const customText = document.getElementById('sql-custom-text');
+      if(customText) customText.value = '';
+    } else {
+      selectView.style.display = 'none';
+      customView.style.display = 'block';
+      // Sync custom SQL with generated
+      const customText = document.getElementById('sql-custom-text');
+      const generated = document.getElementById('sql-generated');
+      if(customText && generated) customText.value = generated.value;
+    }
+  });
+}
+
+// Add WHERE condition row
+function addWhereCondition(){
+  const container = document.getElementById('where-conditions-container');
+  if(!container) return;
+  
+  const conditionId = `where-cond-${Date.now()}`;
+  // Get columns from selected FROM table, or use metric_schema as fallback
+  const fromTable = document.getElementById('from-pool')?.value || '';
+  const cols = getSchemaColumns(fromTable);
+  
+  const div = document.createElement('div');
+  div.className = 'where-condition';
+  div.style.marginBottom = '6px';
+  div.style.display = 'flex';
+  div.style.gap = '4px';
+  div.style.alignItems = 'center';
+  
+  div.innerHTML = `
+    <select class="where-col" style="flex:1;min-width:100px;padding:4px;font-size:12px;border-radius:4px;border:1px solid rgba(255,255,255,0.04);background:#021826;color:#dff5fb">
+      ${cols.map(c => `<option value="${c}">${c}</option>`).join('')}
+    </select>
+    <select class="where-op" style="min-width:60px;padding:4px;font-size:12px;border-radius:4px;border:1px solid rgba(255,255,255,0.04);background:#021826;color:#dff5fb">
+      <option>=</option>
+      <option>></option>
+      <option><</option>
+      <option>>=</option>
+      <option><=</option>
+      <option>IN</option>
+      <option>BETWEEN</option>
+    </select>
+    <input class="where-val" placeholder="value" style="flex:1;min-width:80px;padding:4px;font-size:12px;border-radius:4px;border:1px solid rgba(255,255,255,0.04);background:#021826;color:#dff5fb" />
+    <button class="remove-where" style="padding:2px 6px;min-width:24px;min-height:24px;background:#334155;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;color:#e6eef6">✕</button>
+  `;
+  
+  const removeBtn = div.querySelector('.remove-where');
+  removeBtn.addEventListener('click', ()=>{
+    div.remove();
+    updateGeneratedSql();
+  });
+  
+  const inputs = div.querySelectorAll('input, select');
+  inputs.forEach(input => {
+    input.addEventListener('change', updateGeneratedSql);
+    input.addEventListener('input', updateGeneratedSql);
+    input.addEventListener('keyup', updateGeneratedSql);
+  });
+  
+  container.appendChild(div);
+}
+
+// Setup WHERE condition handlers
+function setupWhereConditionHandlers(){
+  const addBtn = document.getElementById('add-where-btn');
+  if(addBtn){
+    addBtn.addEventListener('click', addWhereCondition);
+  }
+}
+
+// Clear/Reset SQL builder
+function clearSqlBuilder(){
+  const selectPool = document.getElementById('select-pool');
+  const fromPool = document.getElementById('from-pool');
+  const condContainer = document.getElementById('where-conditions-container');
+  const generated = document.getElementById('sql-generated');
+  
+  if(selectPool) selectPool.value = '';
+  if(fromPool) fromPool.value = '';
+  if(condContainer) condContainer.innerHTML = '';
+  if(generated) generated.value = '';
+}
+
+// Setup clear button
+function setupClearButtonHandler(){
+  const clearBtn = document.getElementById('clear-sql-btn');
+  if(clearBtn){
+    clearBtn.addEventListener('click', clearSqlBuilder);
+  }
+}
+
+// Handle SELECT/FROM Apply buttons
+function setupSelectModeHandlers(){
+  const selectPool = document.getElementById('select-pool');
+  const fromPool = document.getElementById('from-pool');
+  
+  if(selectPool){
+    selectPool.addEventListener('change', updateGeneratedSql);
+  }
+  
+  // Setup FROM row Apply button
+  const fromRow = document.getElementById('sql-from-row');
+  if(fromRow){
+    const applyBtn = fromRow.querySelector('.sql-check');
+    if(applyBtn){
+      applyBtn.addEventListener('click', ()=>{
+        const selectedTable = fromPool.value;
+        // Update SELECT and WHERE columns based on selected table
+        updateSelectColumnsForTable(selectedTable);
+        updateGeneratedSql();
+      });
+    }
+  }
+  
+  // Setup SELECT row Apply button
+  const selectRow = document.getElementById('sql-select-row');
+  if(selectRow){
+    const applyBtn = selectRow.querySelector('.sql-check');
+    if(applyBtn){
+      applyBtn.addEventListener('click', updateGeneratedSql);
+    }
+  }
+}
+
+// Handle manual SQL editing to switch to CUSTOMIZED MODE
+function setupCustomSqlHandler(){
+  const customText = document.getElementById('sql-custom-text');
+  if(customText){
+    customText.addEventListener('input', (e)=>{
+      // Auto-switch to CUSTOMIZED MODE when user edits
+      const modeSelect = document.getElementById('sql-mode');
+      if(modeSelect && modeSelect.value === 'select'){
+        modeSelect.value = 'customized';
+        modeSelect.dispatchEvent(new Event('change'));
+      }
+    });
   }
 }
 
@@ -452,6 +744,44 @@ editor.addBtn.addEventListener('click', ()=>{
   persist(); refreshParentOptions(); render(); openEditor(id);
 });
 
+// Show SQL builder button click handler
+function setupSqlBuilderButtonListener(){
+  const btn = document.getElementById('show-sql-builder-btn');
+  if(btn){
+    btn.addEventListener('click', ()=>{
+      const builder = document.getElementById('sql-builder');
+      if(builder){
+        if(builder.style.display === 'none' || !builder.style.display){
+          showSqlBuilder();
+          // Initialize SQL builder handlers when opening
+          setupSqlModeHandler();
+          setupWhereConditionHandlers();
+          setupClearButtonHandler();
+          setupSelectModeHandlers();
+          setupCustomSqlHandler();
+        } else {
+          hideSqlBuilder();
+        }
+      }
+    });
+  }
+}
+
+// Type select change handler to show/hide SQL builder button
+function setupTypeChangeListener(){
+  const typeSelect = document.getElementById('type');
+  if(typeSelect){
+    typeSelect.addEventListener('change', ()=>{
+      const selectedType = typeSelect.value;
+      if(selectedType === 'sql_query'){
+        showSqlBuilderButton();
+      } else {
+        hideSqlBuilderButton();
+      }
+    });
+  }
+}
+
 editor.delBtn.addEventListener('click', ()=>{
   if(!activeId) return; if(!confirm('Delete node '+activeId+'?')) return;
   // remove from parent's child list
@@ -464,45 +794,6 @@ editor.delBtn.addEventListener('click', ()=>{
 
 // click empty space to deselect
 document.getElementById('canvas-wrapper').addEventListener('click', ()=>{ activeId=null; editor.idSpan.textContent='(none)'; });
-
-// Delegate SQL builder button clicks
-document.addEventListener('click', (e)=>{
-  if(!e.target) return;
-  if(e.target.matches && e.target.matches('.sql-check')){
-    const row = e.target.closest && e.target.closest('.sql-row'); if(!row) return;
-    if(row.id === 'sql-select-row'){
-      // apply selects -> enable FROM
-      document.getElementById('sql-from-row')?.classList.remove('disabled');
-      updateGeneratedSql();
-    }
-    if(row.id === 'sql-from-row'){
-      // apply from -> populate ON-left and enable WHERE
-      const fromVal = document.getElementById('from-pool')?.value || '';
-      const joinVal = document.getElementById('join-pool')?.value || '';
-      populateOnColumns(fromVal, joinVal);
-      document.getElementById('sql-where-row')?.classList.remove('disabled');
-      updateGeneratedSql();
-    }
-    if(row.id === 'sql-where-row'){
-      document.getElementById('sql-join-row')?.classList.remove('disabled'); updateGeneratedSql();
-    }
-    if(row.id === 'sql-join-row'){
-      const joinVal = document.getElementById('join-pool')?.value || '';
-      const fromVal = document.getElementById('from-pool')?.value || '';
-      populateOnColumns(fromVal, joinVal);
-      document.getElementById('sql-on-row')?.classList.remove('disabled'); document.getElementById('sql-on-row').style.display='block';
-      updateGeneratedSql();
-    }
-    if(row.id === 'sql-on-row') updateGeneratedSql();
-  }
-
-  if(e.target.matches && e.target.matches('.sql-skip')){
-    const row = e.target.closest && e.target.closest('.sql-row'); if(!row) return;
-    if(row.id === 'sql-where-row') document.getElementById('sql-join-row')?.classList.remove('disabled');
-    if(row.id === 'sql-join-row'){ document.getElementById('sql-on-row')?.classList.add('disabled'); document.getElementById('sql-on-row').style.display='none'; }
-    updateGeneratedSql();
-  }
-});
 
 // double click empty canvas to create a new node at cursor position
 document.getElementById('canvas-wrapper').addEventListener('dblclick', (e)=>{
@@ -538,4 +829,6 @@ window.addEventListener('resize', ()=> drawLinks());
 // boot
 load(); refreshParentOptions(); render();
 loadTypes();
+setupSqlBuilderButtonListener();
+setupTypeChangeListener();
 

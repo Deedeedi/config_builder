@@ -28,6 +28,8 @@ aside#editor{width:350px;padding:16px;background:linear-gradient(180deg,var(--pa
 aside h2{margin-top:0}
 label{display:block;font-size:13px;margin:8px 0}
 input,select,textarea{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:#021826;color:#dff5fb}
+#show-sql-builder-btn{width:100%;display:none !important;margin-top:8px;padding:8px 10px !important}
+#show-sql-builder-btn.visible{display:block !important}
 .editor-actions{display:flex;gap:8px;margin-top:8px}
 button{background:var(--accent);border:none;padding:8px 10px;color:#021220;border-radius:6px;cursor:pointer}
 button.secondary{background:#334155;color:#dbeafe}

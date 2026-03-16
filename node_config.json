@@ -4,27 +4,31 @@
     "llm_query",
     "human_approval",
     "template"
-  ]
-  ,
-  "schemas":{
-  "table_1": {
+  ],
+  "metric_schema": {
     "period": "str",
     "metric_name": "str",
     "metric_value": "float",
     "metric_unit": "str"
   },
-  "table_2":{
-    "period": "str",
-    "metric_name": "str",
-    "metric_value": "float",
-    "metric_unit": "str"
+  "table_schemas": {
+    "table_1": {
+      "period": "str",
+      "metric_name": "str",
+      "metric_value": "float",
+      "metric_unit": "str"
+    },
+    "table_2": {
+      "period": "str",
+      "metric_name": "str",
+      "metric_value": "float",
+      "metric_unit": "str"
+    },
+    "table_3": {
+      "metric_name": "str",
+      "inner_boundary": "str",
+      "outer_boundary": "str"
+    }
   },
-    "table_3":{
-    "metric_name": "str",
-    "inner_boundary": "str",
-    "outer_boundary": "str"
-  }
-},
-
-  "input_tables": ["table_1","table_2","table_3"]
+  "input_tables": ["table_1", "table_2", "table_3"]
 }

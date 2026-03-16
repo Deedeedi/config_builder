@@ -34,17 +34,23 @@
           <label>Type
             <select id="type"></select>
           </label>
+          <button id="show-sql-builder-btn" style="display:none;margin-top:8px;padding:8px 10px;width:100%;">show SQL builder</button>
           <label>Parent
             <select id="parent_node">
               <option value="">(none)</option>
             </select>
           </label>
-          <!-- Inputs JSON removed; SQL builder is used for sql_query nodes -->
+          <!-- SQL Builder Panel -->
           <div id="sql-builder" style="margin-top:10px;display:none;border-top:1px dashed rgba(255,255,255,0.03);padding-top:10px">
-            <label>SQL Input mode
-              <select id="sql-mode"><option value="predefined">pre-defined</option><option value="customized">customized</option></select>
+            <label>SQL Mode
+              <select id="sql-mode">
+                <option value="select">SELECT MODE</option>
+                <option value="customized">CUSTOMIZED MODE</option>
+              </select>
             </label>
-            <div id="sql-predef" style="margin-top:8px">
+            
+            <!-- SELECT MODE View -->
+            <div id="sql-mode-select" style="margin-top:8px">
               <div class="sql-row" id="sql-select-row">
                 <strong>SELECT</strong>
                 <select id="select-pool" class="label-pool" multiple size="4" style="width:100%"></select>
@@ -57,36 +63,20 @@
               </div>
               <div class="sql-row" id="sql-where-row" style="margin-top:8px">
                 <strong>WHERE</strong>
-                <div style="margin-top:6px">
-                  <select id="where-pool" class="label-pool" size="4" style="width:100%;"></select>
-                </div>
-                <div style="margin-top:6px">
-                  <select id="where-op" style="margin-left:0"><option>=</option><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option><option>IN</option><option>BETWEEN</option></select>
-                  <input id="where-value" placeholder="value" style="margin-left:6px;padding:6px;border-radius:6px" />
-                  <button class="sql-check">Apply</button>
-                  <button class="sql-skip">Skip</button>
-                </div>
+                <div id="where-conditions-container" style="margin-top:6px"></div>
+                <button id="add-where-btn" style="margin-top:6px;padding:4px 8px;font-size:12px">+ Add Condition</button>
               </div>
-              <div class="sql-row" id="sql-join-row" style="margin-top:8px">
-                <strong>JOIN</strong>
-                <select id="join-type"><option>LEFT JOIN</option><option>RIGHT JOIN</option><option>INNER JOIN</option><option>CROSS JOIN</option></select>
-                <select id="join-pool" class="label-pool" size="4" style="width:60%"></select>
-                <button class="sql-check">Apply</button>
-                <button class="sql-skip">Skip</button>
+              <div style="margin-top:8px">
+                <label>Auto-generated SQL</label>
+                <textarea id="sql-generated" rows="4" style="width:100%;font-family:monospace;resize:vertical"></textarea>
               </div>
-              <div class="sql-row" id="sql-on-row" style="margin-top:8px;display:none">
-                <strong>ON</strong>
-                <select id="on-left" class="label-pool" size="4" style="width:45%"></select>
-                <select id="on-right" class="label-pool" size="4" style="width:45%"></select>
-                <button class="sql-check">Check</button>
-              </div>
+              <button id="clear-sql-btn" style="margin-top:8px;width:100%;padding:6px;background:#334155">Clear/Reset</button>
             </div>
-            <div id="sql-custom" style="display:none;margin-top:8px">
-              <textarea id="sql-custom-text" rows="4" style="width:100%;font-family:monospace"></textarea>
-            </div>
-            <div style="margin-top:8px">
-              <label>Generated SQL</label>
-              <textarea id="sql-generated" rows="4" style="width:100%;font-family:monospace"></textarea>
+            
+            <!-- CUSTOMIZED MODE View -->
+            <div id="sql-mode-customized" style="display:none;margin-top:8px">
+              <label>SQL Query</label>
+              <textarea id="sql-custom-text" rows="6" style="width:100%;font-family:monospace;resize:vertical"></textarea>
             </div>
           </div>
           <div class="editor-actions">
